@@ -9,7 +9,7 @@ import argparse
 import subprocess
 import yaml
 from pathlib import Path
-from PyQt5.QtWidgets import QApplication, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QTextEdit, QLineEdit, QLabel
+from PyQt5.QtWidgets import QApplication, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QTextEdit, QLineEdit, QLabel, QSplitter
 from PyQt5.QtCore import pyqtSlot, QThread, pyqtSignal, Qt, QObject
 from PyQt5.QtGui import QTextCursor
 from watchdog.observers import Observer
@@ -131,16 +131,18 @@ class MainWindow(QWidget):
 
     def init_ui(self):
         self.setWindowTitle('Bash Command Executor')
-        self.main_layout = QHBoxLayout(self)
+        self.main_layout = QVBoxLayout(self)
+        self.splitter = QSplitter(Qt.Horizontal)
 
-        # Left column layout
+        # Left column widget
+        self.left_widget = QWidget()
         self.left_column = QVBoxLayout()
-        
+
         # Top row with name input
         self.name_input = QLineEdit(self)
         self.name_input.setPlaceholderText("Name")
         self.left_column.addWidget(self.name_input)
-        
+
         # Command buttons
         self.buttons_layout = QVBoxLayout()
         self.buttons = {}
@@ -149,11 +151,13 @@ class MainWindow(QWidget):
             button.clicked.connect(self.on_button_clicked)
             self.buttons_layout.addWidget(button)
             self.buttons[command_name] = button
-        
-        self.left_column.addLayout(self.buttons_layout)
-        self.left_column.addStretch()  # Push everything to the top
 
-        # Right column: command input, buttons, and output
+        self.left_column.addLayout(self.buttons_layout)
+        self.left_column.addStretch()
+        self.left_widget.setLayout(self.left_column)
+
+        # Right column widget
+        self.right_widget = QWidget()
         self.command_input = QLineEdit(self)
         self.command_input.setPlaceholderText("Command")
         self.command_input.returnPressed.connect(self.on_return_pressed)
@@ -168,7 +172,7 @@ class MainWindow(QWidget):
 
         self.output_text = QTextEdit(self)
         self.output_text.setReadOnly(True)
-        fixed_width_font = QFont("Monaco")  # or "Courier", "Consolas", etc.
+        fixed_width_font = QFont("Monaco")
         self.output_text.setFont(fixed_width_font)
 
         self.input_layout = QHBoxLayout()
@@ -179,9 +183,15 @@ class MainWindow(QWidget):
         self.right_layout = QVBoxLayout()
         self.right_layout.addLayout(self.input_layout)
         self.right_layout.addWidget(self.output_text)
+        self.right_widget.setLayout(self.right_layout)
 
-        self.main_layout.addLayout(self.left_column)
-        self.main_layout.addLayout(self.right_layout)
+        # Add widgets to splitter
+        self.splitter.addWidget(self.left_widget)
+        self.splitter.addWidget(self.right_widget)
+        self.splitter.setStretchFactor(0, 0)  # Left doesn't stretch
+        self.splitter.setStretchFactor(1, 1)  # Right stretches
+
+        self.main_layout.addWidget(self.splitter)
 
         self.setLayout(self.main_layout)
 
