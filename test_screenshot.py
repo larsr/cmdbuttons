@@ -99,7 +99,10 @@ if window.command_list.count() > 0:
         if button:
             # Trigger button click directly
             window.on_command_button_clicked(button.text())
-    QTest.qWait(1000)  # Wait for command output
+            # Process events to let the thread start and output appear
+            QTest.qWait(500)
+            app.processEvents()
+            QTest.qWait(1500)  # Wait longer for command output
 
 # Take final snapshot after execution
 pixmap = window.grab()
