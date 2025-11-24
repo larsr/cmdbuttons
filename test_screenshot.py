@@ -66,18 +66,18 @@ print(f"Screenshot 1 saved to {screenshot_path}")
 
 # Reorder the commands by moving the second item to the first position
 if window.command_list.count() >= 2:
-    # Get the widget from the second item before moving
+    # Get the container widget from the second item before moving
     item = window.command_list.item(1)
-    widget = window.command_list.itemWidget(item)
+    container = window.command_list.itemWidget(item)
 
-    # Take the item and its widget
+    # Take the item and its container
     item = window.command_list.takeItem(1)
 
     # Insert at position 0
     window.command_list.insertItem(0, item)
 
-    # Restore the widget to the moved item
-    window.command_list.setItemWidget(item, widget)
+    # Restore the container to the moved item
+    window.command_list.setItemWidget(item, container)
 
     # Manually trigger the reorder handler since we're not using drag-drop
     window.on_items_reordered()
@@ -92,10 +92,13 @@ print(f"Screenshot 2 saved to {screenshot_path}")
 # Click on the first command in the list to run it (which is now "echo test")
 if window.command_list.count() > 0:
     item = window.command_list.item(0)
-    widget = window.command_list.itemWidget(item)
-    if widget:
-        # Trigger button click directly
-        window.on_command_button_clicked(widget.text())
+    container = window.command_list.itemWidget(item)
+    if container:
+        from src.cmdbuttons import DraggableButton
+        button = container.findChild(DraggableButton)
+        if button:
+            # Trigger button click directly
+            window.on_command_button_clicked(button.text())
     QTest.qWait(1000)  # Wait for command output
 
 # Take final snapshot after execution

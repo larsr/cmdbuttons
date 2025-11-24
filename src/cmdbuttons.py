@@ -199,6 +199,7 @@ class MainWindow(QWidget):
 
         # Command list with actual button widgets
         self.command_list = ReorderableListWidget(self)
+        self.command_list.setSpacing(4)  # Add spacing between items
         for command_name in self.commands:
             self._add_button_to_list(command_name)
         self.command_list.items_reordered.connect(self.on_items_reordered)
@@ -255,12 +256,21 @@ class MainWindow(QWidget):
     def _add_button_to_list(self, command_name):
         """Add a command button to the list widget"""
         item = QListWidgetItem(self.command_list)
+
+        # Create a container widget with padding for drag area
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(4, 2, 4, 2)  # Add margins for drag area
+
         button = DraggableButton(command_name, self)
         button.list_widget = self.command_list
         button.clicked.connect(lambda checked, name=command_name: self.on_command_button_clicked(name))
-        item.setSizeHint(button.sizeHint())
+
+        layout.addWidget(button)
+
+        item.setSizeHint(container.sizeHint())
         self.command_list.addItem(item)
-        self.command_list.setItemWidget(item, button)
+        self.command_list.setItemWidget(item, container)
 
     @pyqtSlot()
     def on_add_button_clicked(self):
@@ -319,10 +329,12 @@ class MainWindow(QWidget):
         for command_name in removed_commands:
             for i in range(self.command_list.count()):
                 item = self.command_list.item(i)
-                widget = self.command_list.itemWidget(item)
-                if widget and widget.text() == command_name:
-                    self.command_list.takeItem(i)
-                    break
+                container = self.command_list.itemWidget(item)
+                if container:
+                    button = container.findChild(DraggableButton)
+                    if button and button.text() == command_name:
+                        self.command_list.takeItem(i)
+                        break
 
         # Add new items for added commands
         for command_name in added_commands:
@@ -358,10 +370,12 @@ class MainWindow(QWidget):
         ordered_commands = []
         for i in range(self.command_list.count()):
             item = self.command_list.item(i)
-            widget = self.command_list.itemWidget(item)
-            if widget:
-                command_name = widget.text()
-                ordered_commands.append({"name": command_name, "command": self.commands[command_name]})
+            container = self.command_list.itemWidget(item)
+            if container:
+                button = container.findChild(DraggableButton)
+                if button:
+                    command_name = button.text()
+                    ordered_commands.append({"name": command_name, "command": self.commands[command_name]})
 
         # Save to YAML
         with open(self.command_file, 'w') as yamlfile:
