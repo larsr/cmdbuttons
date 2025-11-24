@@ -111,11 +111,12 @@ class DraggableButton(QPushButton):
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
         self.list_widget = None
+        self.is_dragging = False
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            # Store the press position for potential drag
             self.drag_start_position = event.pos()
+            self.is_dragging = False
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -123,24 +124,23 @@ class DraggableButton(QPushButton):
             return
         if not hasattr(self, 'drag_start_position'):
             return
-        # Check if we've moved far enough to start a drag
-        if (event.pos() - self.drag_start_position).manhattanLength() < QApplication.startDragDistance():
+
+        # Check if we should start dragging
+        if not self.is_dragging:
+            if (event.pos() - self.drag_start_position).manhattanLength() < QApplication.startDragDistance():
+                return
+            self.is_dragging = True
+
+        # Ignore the move event so it propagates to parent
+        event.ignore()
+
+    def mouseReleaseEvent(self, event):
+        # If we were dragging, don't emit clicked signal
+        if self.is_dragging:
+            self.is_dragging = False
+            event.accept()
             return
-        # Forward the drag to the list widget
-        if self.list_widget:
-            # Find the item containing this button
-            for i in range(self.list_widget.count()):
-                item = self.list_widget.item(i)
-                if self.list_widget.itemWidget(item) == self:
-                    self.list_widget.setCurrentItem(item)
-                    # Start drag on the list widget
-                    list_pos = self.list_widget.mapFromGlobal(self.mapToGlobal(event.pos()))
-                    drag_event = event.__class__(
-                        event.type(), list_pos, event.globalPos(),
-                        event.button(), event.buttons(), event.modifiers()
-                    )
-                    self.list_widget.mouseMoveEvent(drag_event)
-                    break
+        super().mouseReleaseEvent(event)
 
 # Custom QListWidget with reorder detection
 class ReorderableListWidget(QListWidget):

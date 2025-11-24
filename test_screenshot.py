@@ -66,9 +66,19 @@ print(f"Screenshot 1 saved to {screenshot_path}")
 
 # Reorder the commands by moving the second item to the first position
 if window.command_list.count() >= 2:
-    # Take the second item and move it to position 0
+    # Get the widget from the second item before moving
+    item = window.command_list.item(1)
+    widget = window.command_list.itemWidget(item)
+
+    # Take the item and its widget
     item = window.command_list.takeItem(1)
+
+    # Insert at position 0
     window.command_list.insertItem(0, item)
+
+    # Restore the widget to the moved item
+    window.command_list.setItemWidget(item, widget)
+
     # Manually trigger the reorder handler since we're not using drag-drop
     window.on_items_reordered()
     QTest.qWait(500)  # Wait for reorder to complete
