@@ -106,6 +106,42 @@ class CommandThread(QThread):
 class FileModifiedSignalEmitter(QObject):
     file_modified_signal = pyqtSignal(str)
 
+# Custom button that allows dragging from parent list
+class DraggableButton(QPushButton):
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        self.list_widget = None
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            # Store the press position for potential drag
+            self.drag_start_position = event.pos()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if not (event.buttons() & Qt.LeftButton):
+            return
+        if not hasattr(self, 'drag_start_position'):
+            return
+        # Check if we've moved far enough to start a drag
+        if (event.pos() - self.drag_start_position).manhattanLength() < QApplication.startDragDistance():
+            return
+        # Forward the drag to the list widget
+        if self.list_widget:
+            # Find the item containing this button
+            for i in range(self.list_widget.count()):
+                item = self.list_widget.item(i)
+                if self.list_widget.itemWidget(item) == self:
+                    self.list_widget.setCurrentItem(item)
+                    # Start drag on the list widget
+                    list_pos = self.list_widget.mapFromGlobal(self.mapToGlobal(event.pos()))
+                    drag_event = event.__class__(
+                        event.type(), list_pos, event.globalPos(),
+                        event.button(), event.buttons(), event.modifiers()
+                    )
+                    self.list_widget.mouseMoveEvent(drag_event)
+                    break
+
 # Custom QListWidget with reorder detection
 class ReorderableListWidget(QListWidget):
     items_reordered = pyqtSignal()
@@ -219,7 +255,8 @@ class MainWindow(QWidget):
     def _add_button_to_list(self, command_name):
         """Add a command button to the list widget"""
         item = QListWidgetItem(self.command_list)
-        button = QPushButton(command_name, self)
+        button = DraggableButton(command_name, self)
+        button.list_widget = self.command_list
         button.clicked.connect(lambda checked, name=command_name: self.on_command_button_clicked(name))
         item.setSizeHint(button.sizeHint())
         self.command_list.addItem(item)
