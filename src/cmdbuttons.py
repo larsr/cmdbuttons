@@ -9,7 +9,7 @@ import argparse
 import subprocess
 import yaml
 from pathlib import Path
-from PyQt5.QtWidgets import QApplication, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QTextEdit, QLineEdit, QLabel, QSplitter
+from PyQt5.QtWidgets import QApplication, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QTextEdit, QLineEdit, QLabel, QSplitter, QListWidget, QAbstractItemView, QListWidgetItem
 from PyQt5.QtCore import pyqtSlot, QThread, pyqtSignal, Qt, QObject
 from PyQt5.QtGui import QTextCursor
 from watchdog.observers import Observer
@@ -19,10 +19,16 @@ from PyQt5.QtGui import QFont
 def read_commands_from_yaml(filepath):
     if not filepath.exists():
         return {}
-    with open(filepath, 'r') as yamlfile:
-        data = yaml.safe_load(yamlfile)
-    data = {x["name"]: x["command"] for x in data}
-    return data
+    try:
+        with open(filepath, 'r') as yamlfile:
+            data = yaml.safe_load(yamlfile)
+        if data is None or not isinstance(data, list):
+            return {}
+        data = {x["name"]: x["command"] for x in data if isinstance(x, dict) and "name" in x and "command" in x}
+        return data
+    except Exception as e:
+        print(f"Error reading YAML file: {e}")
+        return {}
 
 def save_command_to_yaml(filepath, name, command):
     with open(filepath, 'r') as yamlfile:
@@ -100,6 +106,18 @@ class CommandThread(QThread):
 class FileModifiedSignalEmitter(QObject):
     file_modified_signal = pyqtSignal(str)
 
+# Custom QListWidget with reorder detection
+class ReorderableListWidget(QListWidget):
+    items_reordered = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setDragDropMode(QAbstractItemView.InternalMove)
+
+    def dropEvent(self, event):
+        super().dropEvent(event)
+        self.items_reordered.emit()
+
 # File watcher class
 class CommandFileEventHandler(FileSystemEventHandler):
     def __init__(self, signal_emitter, command_file):
@@ -143,17 +161,35 @@ class MainWindow(QWidget):
         self.name_input.setPlaceholderText("Name")
         self.left_column.addWidget(self.name_input)
 
-        # Command buttons
-        self.buttons_layout = QVBoxLayout()
-        self.buttons = {}
+        # Command list
+        self.command_list = ReorderableListWidget(self)
         for command_name in self.commands:
-            button = QPushButton(command_name, self)
-            button.clicked.connect(self.on_button_clicked)
-            self.buttons_layout.addWidget(button)
-            self.buttons[command_name] = button
+            self.command_list.addItem(command_name)
+        self.command_list.itemClicked.connect(self.on_item_clicked)
+        self.command_list.items_reordered.connect(self.on_items_reordered)
+        # Style the list to look like buttons
+        self.command_list.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #ccc;
+                background-color: #f0f0f0;
+            }
+            QListWidget::item {
+                background-color: #e0e0e0;
+                border: 1px solid #999;
+                border-radius: 4px;
+                padding: 8px;
+                margin: 2px;
+            }
+            QListWidget::item:hover {
+                background-color: #d0d0d0;
+            }
+            QListWidget::item:selected {
+                background-color: #4a90d9;
+                color: white;
+            }
+        """)
 
-        self.left_column.addLayout(self.buttons_layout)
-        self.left_column.addStretch()
+        self.left_column.addWidget(self.command_list)
         self.left_widget.setLayout(self.left_column)
 
         # Right column widget
@@ -170,15 +206,22 @@ class MainWindow(QWidget):
         self.remove_button.setFixedSize(30, 30)
         self.remove_button.clicked.connect(self.on_remove_button_clicked)
 
+        self.font_button = QPushButton("Aa", self)
+        self.font_button.setFixedSize(30, 30)
+        self.font_button.clicked.connect(self.on_font_button_clicked)
+
         self.output_text = QTextEdit(self)
         self.output_text.setReadOnly(True)
-        fixed_width_font = QFont("Monaco")
+        self.fixed_width_font = True
+        fixed_width_font = QFont("Monospace")
+        fixed_width_font.setStyleHint(QFont.TypeWriter)
         self.output_text.setFont(fixed_width_font)
 
         self.input_layout = QHBoxLayout()
         self.input_layout.addWidget(self.command_input)
         self.input_layout.addWidget(self.add_button)
         self.input_layout.addWidget(self.remove_button)
+        self.input_layout.addWidget(self.font_button)
 
         self.right_layout = QVBoxLayout()
         self.right_layout.addLayout(self.input_layout)
@@ -222,6 +265,16 @@ class MainWindow(QWidget):
             self.name_input.clear()
             self.command_input.clear()
 
+    @pyqtSlot()
+    def on_font_button_clicked(self):
+        self.fixed_width_font = not self.fixed_width_font
+        if self.fixed_width_font:
+            font = QFont("Monospace")
+            font.setStyleHint(QFont.TypeWriter)
+        else:
+            font = QFont()
+        self.output_text.setFont(font)
+
     def update_commands_from_signal(self, filepath):
         # This method will be called in the main thread
         self.update_commands()
@@ -238,34 +291,24 @@ class MainWindow(QWidget):
         added_commands = new_command_names - old_command_names
         removed_commands = old_command_names - new_command_names
 
-        # Remove buttons for commands that have been removed
+        # Remove items for commands that have been removed
         for command_name in removed_commands:
-            button = self.buttons.pop(command_name)
-            self.buttons_layout.removeWidget(button)
-            button.deleteLater()
+            items = self.command_list.findItems(command_name, Qt.MatchExactly)
+            for item in items:
+                self.command_list.takeItem(self.command_list.row(item))
 
-        # Update existing buttons with new commands
-        for command_name in new_command_names & old_command_names:
-            if new_commands[command_name] != self.commands[command_name]:
-                self.buttons[command_name].clicked.disconnect()
-                self.buttons[command_name].clicked.connect(self.on_button_clicked)
-
-        # Add new buttons for added commands
+        # Add new items for added commands
         for command_name in added_commands:
-            button = QPushButton(command_name, self)
-            button.clicked.connect(self.on_button_clicked)
-            self.buttons_layout.addWidget(button)
-            self.buttons[command_name] = button
+            self.command_list.addItem(command_name)
 
         # Update the commands dictionary
         self.commands = new_commands
 
-    @pyqtSlot()
-    def on_button_clicked(self):
-        button = self.sender()
-        command_name = button.text()
+    @pyqtSlot(QListWidgetItem)
+    def on_item_clicked(self, item):
+        command_name = item.text()
         command = self.commands[command_name]
-        
+
         self.name_input.setText(command_name)
         self.command_input.setText(command)
 
@@ -282,6 +325,19 @@ class MainWindow(QWidget):
         self.command_thread = CommandThread(command, '.')
         self.command_thread.output_signal.connect(self.append_output)
         self.command_thread.start()
+
+    @pyqtSlot()
+    def on_items_reordered(self):
+        # Get the new order from the list widget
+        ordered_commands = []
+        for i in range(self.command_list.count()):
+            item = self.command_list.item(i)
+            command_name = item.text()
+            ordered_commands.append({"name": command_name, "command": self.commands[command_name]})
+
+        # Save to YAML
+        with open(self.command_file, 'w') as yamlfile:
+            yaml.dump(ordered_commands, yamlfile, default_flow_style=False)
 
     @pyqtSlot()
     def on_return_pressed(self):
