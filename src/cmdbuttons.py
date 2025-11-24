@@ -147,8 +147,8 @@ class CommandListItemWidget(QWidget):
         self.list_widget = list_widget
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 4, 6, 4)
-        layout.setSpacing(8)
+        layout.setContentsMargins(1, 1, 1, 1)
+        layout.setSpacing(4)
 
         self.drag_handle = DragHandleLabel(self.list_widget, self)
         handle_icon = self.style().standardIcon(QStyle.SP_TitleBarShadeButton)
