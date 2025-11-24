@@ -82,8 +82,10 @@ print(f"Screenshot 2 saved to {screenshot_path}")
 # Click on the first command in the list to run it (which is now "echo test")
 if window.command_list.count() > 0:
     item = window.command_list.item(0)
-    window.command_list.setCurrentItem(item)
-    window.on_item_clicked(item)
+    widget = window.command_list.itemWidget(item)
+    if widget:
+        # Trigger button click directly
+        window.on_command_button_clicked(widget.text())
     QTest.qWait(1000)  # Wait for command output
 
 # Take final snapshot after execution

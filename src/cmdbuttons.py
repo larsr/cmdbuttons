@@ -161,33 +161,11 @@ class MainWindow(QWidget):
         self.name_input.setPlaceholderText("Name")
         self.left_column.addWidget(self.name_input)
 
-        # Command list
+        # Command list with actual button widgets
         self.command_list = ReorderableListWidget(self)
         for command_name in self.commands:
-            self.command_list.addItem(command_name)
-        self.command_list.itemClicked.connect(self.on_item_clicked)
+            self._add_button_to_list(command_name)
         self.command_list.items_reordered.connect(self.on_items_reordered)
-        # Style the list to look like buttons
-        self.command_list.setStyleSheet("""
-            QListWidget {
-                border: 1px solid #ccc;
-                background-color: #f0f0f0;
-            }
-            QListWidget::item {
-                background-color: #e0e0e0;
-                border: 1px solid #999;
-                border-radius: 4px;
-                padding: 8px;
-                margin: 2px;
-            }
-            QListWidget::item:hover {
-                background-color: #d0d0d0;
-            }
-            QListWidget::item:selected {
-                background-color: #4a90d9;
-                color: white;
-            }
-        """)
 
         self.left_column.addWidget(self.command_list)
         self.left_widget.setLayout(self.left_column)
@@ -237,6 +215,15 @@ class MainWindow(QWidget):
         self.main_layout.addWidget(self.splitter)
 
         self.setLayout(self.main_layout)
+
+    def _add_button_to_list(self, command_name):
+        """Add a command button to the list widget"""
+        item = QListWidgetItem(self.command_list)
+        button = QPushButton(command_name, self)
+        button.clicked.connect(lambda checked, name=command_name: self.on_command_button_clicked(name))
+        item.setSizeHint(button.sizeHint())
+        self.command_list.addItem(item)
+        self.command_list.setItemWidget(item, button)
 
     @pyqtSlot()
     def on_add_button_clicked(self):
@@ -293,20 +280,22 @@ class MainWindow(QWidget):
 
         # Remove items for commands that have been removed
         for command_name in removed_commands:
-            items = self.command_list.findItems(command_name, Qt.MatchExactly)
-            for item in items:
-                self.command_list.takeItem(self.command_list.row(item))
+            for i in range(self.command_list.count()):
+                item = self.command_list.item(i)
+                widget = self.command_list.itemWidget(item)
+                if widget and widget.text() == command_name:
+                    self.command_list.takeItem(i)
+                    break
 
         # Add new items for added commands
         for command_name in added_commands:
-            self.command_list.addItem(command_name)
+            self._add_button_to_list(command_name)
 
         # Update the commands dictionary
         self.commands = new_commands
 
-    @pyqtSlot(QListWidgetItem)
-    def on_item_clicked(self, item):
-        command_name = item.text()
+    def on_command_button_clicked(self, command_name):
+        """Handle command button click"""
         command = self.commands[command_name]
 
         self.name_input.setText(command_name)
@@ -328,12 +317,14 @@ class MainWindow(QWidget):
 
     @pyqtSlot()
     def on_items_reordered(self):
-        # Get the new order from the list widget
+        # Get the new order from the list widget buttons
         ordered_commands = []
         for i in range(self.command_list.count()):
             item = self.command_list.item(i)
-            command_name = item.text()
-            ordered_commands.append({"name": command_name, "command": self.commands[command_name]})
+            widget = self.command_list.itemWidget(item)
+            if widget:
+                command_name = widget.text()
+                ordered_commands.append({"name": command_name, "command": self.commands[command_name]})
 
         # Save to YAML
         with open(self.command_file, 'w') as yamlfile:
