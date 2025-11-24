@@ -17,6 +17,8 @@ from watchdog.events import FileSystemEventHandler
 from PyQt5.QtGui import QFont
 
 def read_commands_from_yaml(filepath):
+    if not filepath.exists():
+        return {}
     with open(filepath, 'r') as yamlfile:
         data = yaml.safe_load(yamlfile)
     data = {x["name"]: x["command"] for x in data}
