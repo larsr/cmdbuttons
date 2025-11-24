@@ -9,8 +9,8 @@ import argparse
 import subprocess
 import yaml
 from pathlib import Path
-from PyQt5.QtWidgets import QApplication, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QTextEdit, QLineEdit, QLabel, QSplitter, QListWidget, QAbstractItemView, QListWidgetItem
-from PyQt5.QtCore import pyqtSlot, QThread, pyqtSignal, Qt, QObject, QMimeData, QPoint
+from PyQt5.QtWidgets import QApplication, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QTextEdit, QLineEdit, QLabel, QSplitter, QListWidget, QAbstractItemView, QListWidgetItem, QStyle
+from PyQt5.QtCore import pyqtSlot, QThread, pyqtSignal, Qt, QObject
 from PyQt5.QtGui import QTextCursor, QDrag
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -106,16 +106,23 @@ class CommandThread(QThread):
 class FileModifiedSignalEmitter(QObject):
     file_modified_signal = pyqtSignal(str)
 
-# Custom button that allows dragging from parent list
-class DraggableButton(QPushButton):
-    def __init__(self, text, parent=None):
-        super().__init__(text, parent)
-        self.list_widget = None
+
+class DragHandleLabel(QLabel):
+    def __init__(self, list_widget, parent=None):
+        super().__init__(parent)
+        self.list_widget = list_widget
         self.drag_start_position = None
+        self.list_item = None
+        self.setCursor(Qt.OpenHandCursor)
+        self.setAlignment(Qt.AlignCenter)
+
+    def set_list_item(self, item):
+        self.list_item = item
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.drag_start_position = event.pos()
+            self.setCursor(Qt.ClosedHandCursor)
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -125,26 +132,35 @@ class DraggableButton(QPushButton):
             return
         if (event.pos() - self.drag_start_position).manhattanLength() < QApplication.startDragDistance():
             return
+        if self.list_item:
+            self.list_widget.initiate_drag_for_item(self.list_item)
 
-        # Start drag operation
-        if self.list_widget:
-            # Find the list item containing this button
-            for i in range(self.list_widget.count()):
-                item = self.list_widget.item(i)
-                container = self.list_widget.itemWidget(item)
-                if container and container.findChild(DraggableButton) == self:
-                    # Set current item to enable drag
-                    self.list_widget.setCurrentItem(item)
-                    # Trigger drag on list widget by creating mouse event at list position
-                    global_pos = self.mapToGlobal(event.pos())
-                    list_pos = self.list_widget.viewport().mapFromGlobal(global_pos)
-                    # Start internal drag
-                    drag = QDrag(self.list_widget)
-                    mime_data = QMimeData()
-                    mime_data.setText(str(i))
-                    drag.setMimeData(mime_data)
-                    drag.exec_(Qt.MoveAction)
-                    break
+    def mouseReleaseEvent(self, event):
+        self.setCursor(Qt.OpenHandCursor)
+        super().mouseReleaseEvent(event)
+
+
+class CommandListItemWidget(QWidget):
+    def __init__(self, command_name, list_widget, click_handler, parent=None):
+        super().__init__(parent)
+        self.command_name = command_name
+        self.list_widget = list_widget
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(8)
+
+        self.drag_handle = DragHandleLabel(self.list_widget, self)
+        handle_icon = self.style().standardIcon(QStyle.SP_TitleBarShadeButton)
+        self.drag_handle.setPixmap(handle_icon.pixmap(12, 12))
+        layout.addWidget(self.drag_handle)
+
+        self.button = QPushButton(command_name, self)
+        self.button.clicked.connect(lambda checked=False: click_handler(command_name))
+        layout.addWidget(self.button, 1)
+
+    def set_list_item(self, item):
+        self.drag_handle.set_list_item(item)
 
 # Custom QListWidget with reorder detection
 class ReorderableListWidget(QListWidget):
@@ -153,6 +169,15 @@ class ReorderableListWidget(QListWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setDragDropMode(QAbstractItemView.InternalMove)
+
+    def initiate_drag_for_item(self, item):
+        if not item:
+            return
+        self.setCurrentItem(item)
+        drag = QDrag(self)
+        mime_data = self.model().mimeData(self.selectedIndexes())
+        drag.setMimeData(mime_data)
+        drag.exec_(Qt.MoveAction)
 
     def dropEvent(self, event):
         super().dropEvent(event)
@@ -260,17 +285,10 @@ class MainWindow(QWidget):
     def _add_button_to_list(self, command_name):
         """Add a command button to the list widget"""
         item = QListWidgetItem(self.command_list)
+        item.setFlags(item.flags() | Qt.ItemIsDragEnabled | Qt.ItemIsEnabled | Qt.ItemIsSelectable)
 
-        # Create a container widget with padding for drag area
-        container = QWidget()
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(4, 2, 4, 2)  # Add margins for drag area
-
-        button = DraggableButton(command_name, self)
-        button.list_widget = self.command_list
-        button.clicked.connect(lambda checked, name=command_name: self.on_command_button_clicked(name))
-
-        layout.addWidget(button)
+        container = CommandListItemWidget(command_name, self.command_list, self.on_command_button_clicked, self)
+        container.set_list_item(item)
 
         item.setSizeHint(container.sizeHint())
         self.command_list.addItem(item)
@@ -334,11 +352,9 @@ class MainWindow(QWidget):
             for i in range(self.command_list.count()):
                 item = self.command_list.item(i)
                 container = self.command_list.itemWidget(item)
-                if container:
-                    button = container.findChild(DraggableButton)
-                    if button and button.text() == command_name:
-                        self.command_list.takeItem(i)
-                        break
+                if container and getattr(container, "command_name", None) == command_name:
+                    self.command_list.takeItem(i)
+                    break
 
         # Add new items for added commands
         for command_name in added_commands:
@@ -376,9 +392,8 @@ class MainWindow(QWidget):
             item = self.command_list.item(i)
             container = self.command_list.itemWidget(item)
             if container:
-                button = container.findChild(DraggableButton)
-                if button:
-                    command_name = button.text()
+                command_name = getattr(container, "command_name", None)
+                if command_name:
                     ordered_commands.append({"name": command_name, "command": self.commands[command_name]})
 
         # Save to YAML

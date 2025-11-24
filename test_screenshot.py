@@ -4,7 +4,7 @@ import yaml
 from pathlib import Path
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtTest import QTest
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QPoint
 from src.cmdbuttons import MainWindow
 
 app = QApplication(sys.argv)
@@ -64,24 +64,29 @@ screenshot_path = output_dir / "screenshot_after_add.png"
 pixmap.save(str(screenshot_path))
 print(f"Screenshot 1 saved to {screenshot_path}")
 
-# Reorder the commands by moving the second item to the first position
+# Reorder the commands by dragging the second item's handle to the top
 if window.command_list.count() >= 2:
-    # Get the container widget from the second item before moving
-    item = window.command_list.item(1)
-    container = window.command_list.itemWidget(item)
+    # Use the handle of the second item as the drag source
+    source_item = window.command_list.item(1)
+    source_container = window.command_list.itemWidget(source_item)
 
-    # Take the item and its container
-    item = window.command_list.takeItem(1)
+    handle = getattr(source_container, "drag_handle", None)
+    target_rect = window.command_list.visualItemRect(window.command_list.item(0))
+    target_pos = target_rect.center() + QPoint(0, -target_rect.height() // 2)
 
-    # Insert at position 0
-    window.command_list.insertItem(0, item)
+    if handle:
+        # Press on the handle, move to the target position on the viewport, then release
+        QTest.mousePress(handle, Qt.LeftButton, pos=handle.rect().center())
+        QTest.qWait(100)
+        QTest.mouseMove(window.command_list.viewport(), target_pos)
+        QTest.qWait(100)
+        QTest.mouseRelease(window.command_list.viewport(), Qt.LeftButton, pos=target_pos)
+        QTest.qWait(750)  # Wait for reorder to complete
 
-    # Restore the container to the moved item
-    window.command_list.setItemWidget(item, container)
-
-    # Manually trigger the reorder handler since we're not using drag-drop
-    window.on_items_reordered()
-    QTest.qWait(500)  # Wait for reorder to complete
+        # Verify the YAML order updated with the new top item
+        with open(config_file) as f:
+            command_list = yaml.safe_load(f) or []
+        assert command_list and command_list[0]["name"] == "echo test"
 
 # Take snapshot after reordering
 pixmap = window.grab()
@@ -93,16 +98,13 @@ print(f"Screenshot 2 saved to {screenshot_path}")
 if window.command_list.count() > 0:
     item = window.command_list.item(0)
     container = window.command_list.itemWidget(item)
-    if container:
-        from src.cmdbuttons import DraggableButton
-        button = container.findChild(DraggableButton)
-        if button:
-            # Trigger button click directly
-            window.on_command_button_clicked(button.text())
-            # Process events to let the thread start and output appear
-            QTest.qWait(500)
-            app.processEvents()
-            QTest.qWait(1500)  # Wait longer for command output
+    if container and getattr(container, "button", None):
+        # Trigger button click directly
+        window.on_command_button_clicked(container.button.text())
+        # Process events to let the thread start and output appear
+        QTest.qWait(500)
+        app.processEvents()
+        QTest.qWait(1500)  # Wait longer for command output
 
 # Take final snapshot after execution
 pixmap = window.grab()
