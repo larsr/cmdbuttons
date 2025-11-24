@@ -10,8 +10,8 @@ import subprocess
 import yaml
 from pathlib import Path
 from PyQt5.QtWidgets import QApplication, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QTextEdit, QLineEdit, QLabel, QSplitter, QListWidget, QAbstractItemView, QListWidgetItem
-from PyQt5.QtCore import pyqtSlot, QThread, pyqtSignal, Qt, QObject
-from PyQt5.QtGui import QTextCursor
+from PyQt5.QtCore import pyqtSlot, QThread, pyqtSignal, Qt, QObject, QMimeData, QPoint
+from PyQt5.QtGui import QTextCursor, QDrag
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from PyQt5.QtGui import QFont
@@ -111,36 +111,40 @@ class DraggableButton(QPushButton):
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
         self.list_widget = None
-        self.is_dragging = False
+        self.drag_start_position = None
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.drag_start_position = event.pos()
-            self.is_dragging = False
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         if not (event.buttons() & Qt.LeftButton):
             return
-        if not hasattr(self, 'drag_start_position'):
+        if self.drag_start_position is None:
+            return
+        if (event.pos() - self.drag_start_position).manhattanLength() < QApplication.startDragDistance():
             return
 
-        # Check if we should start dragging
-        if not self.is_dragging:
-            if (event.pos() - self.drag_start_position).manhattanLength() < QApplication.startDragDistance():
-                return
-            self.is_dragging = True
-
-        # Ignore the move event so it propagates to parent
-        event.ignore()
-
-    def mouseReleaseEvent(self, event):
-        # If we were dragging, don't emit clicked signal
-        if self.is_dragging:
-            self.is_dragging = False
-            event.accept()
-            return
-        super().mouseReleaseEvent(event)
+        # Start drag operation
+        if self.list_widget:
+            # Find the list item containing this button
+            for i in range(self.list_widget.count()):
+                item = self.list_widget.item(i)
+                container = self.list_widget.itemWidget(item)
+                if container and container.findChild(DraggableButton) == self:
+                    # Set current item to enable drag
+                    self.list_widget.setCurrentItem(item)
+                    # Trigger drag on list widget by creating mouse event at list position
+                    global_pos = self.mapToGlobal(event.pos())
+                    list_pos = self.list_widget.viewport().mapFromGlobal(global_pos)
+                    # Start internal drag
+                    drag = QDrag(self.list_widget)
+                    mime_data = QMimeData()
+                    mime_data.setText(str(i))
+                    drag.setMimeData(mime_data)
+                    drag.exec_(Qt.MoveAction)
+                    break
 
 # Custom QListWidget with reorder detection
 class ReorderableListWidget(QListWidget):
